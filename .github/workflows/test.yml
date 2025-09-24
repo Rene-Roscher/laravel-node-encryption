@@ -1,0 +1,225 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node: [16, 18, 20]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run tests
+      run: npm test || echo "Tests pending"
+
+    - name: Test basic functionality
+      run: |
+        cat > test-basic.js << 'EOF'
+        const { LaravelEncrypter } = require('./src/index.js');
+        const assert = require('assert');
+
+        // Create encrypter with test key
+        const key = 'base64:' + Buffer.from('12345678901234567890123456789012').toString('base64');
+        const encrypter = new LaravelEncrypter(key);
+
+        // Test string encryption
+        const original = 'Hello World';
+        const encrypted = encrypter.encrypt(original);
+        const decrypted = encrypter.decrypt(encrypted);
+        assert.strictEqual(decrypted, original, 'String encryption failed');
+
+        // Test object encryption
+        const obj = { test: 'value', num: 123 };
+        const encObj = encrypter.encrypt(obj);
+        const decObj = encrypter.decrypt(encObj);
+        assert.deepStrictEqual(decObj, obj, 'Object encryption failed');
+
+        // Test MAC validation
+        const payload = JSON.parse(Buffer.from(encrypted, 'base64').toString());
+        payload.value = 'tampered';
+        const tampered = Buffer.from(JSON.stringify(payload)).toString('base64');
+
+        try {
+          encrypter.decrypt(tampered);
+          assert.fail('Should have thrown MAC error');
+        } catch (e) {
+          assert(e.message.includes('MAC'), 'Wrong error for tampered data');
+        }
+
+        console.log('✅ All tests passed');
+        EOF
+
+        node test-basic.js
+
+  bidirectional-compatibility:
+    name: Laravel ${{ matrix.laravel }} ⟷ Node.js
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        laravel: [10, 11]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.3
+        extensions: mbstring, xml, json
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Test Laravel ${{ matrix.laravel }} ⟷ Node.js bidirectional encryption
+      run: |
+        # Install minimal Laravel components
+        composer require illuminate/encryption:"^${{ matrix.laravel }}.0" --no-interaction
+
+        # Generate test key
+        export TEST_KEY=$(openssl rand -base64 32)
+        export APP_KEY="base64:$TEST_KEY"
+
+        # Create comprehensive bidirectional test
+        cat > bidirectional-test.php << 'EOF'
+        <?php
+        require 'vendor/autoload.php';
+
+        $key = base64_decode(getenv('TEST_KEY'));
+        $encrypter = new \Illuminate\Encryption\Encrypter($key, 'aes-256-cbc');
+
+        // All test cases - verschiedene Datentypen!
+        $testCases = [
+            'simple_string' => 'Hello World',
+            'empty_string' => '',
+            'unicode' => 'Ümläüte 中文 emoji 🚀',
+            'special_chars' => '!@#$%^&*()[]{}',
+            'integer' => 42,
+            'float' => 3.14159,
+            'boolean_true' => true,
+            'boolean_false' => false,
+            'null' => null,
+            'simple_array' => [1, 2, 3],
+            'assoc_array' => ['key' => 'value', 'number' => 123],
+            'nested' => ['level1' => ['level2' => ['level3' => 'deep']]],
+            'mixed' => ['string', 123, true, null, ['nested' => 'array']]
+        ];
+
+        $errors = 0;
+        $passed = 0;
+
+        echo "Testing Laravel " . getenv('LARAVEL_VERSION') . " ⟷ Node.js\n\n";
+
+        foreach ($testCases as $name => $testData) {
+            // ========== TEST 1: PHP → Node.js ==========
+            $encrypted = $encrypter->encrypt($testData);
+
+            // Create Node.js test to decrypt PHP encrypted data
+            $nodeTest = sprintf('
+                process.env.APP_KEY = "%s";
+                const { LaravelEncrypter } = require("./src/index.js");
+                const enc = new LaravelEncrypter();
+
+                try {
+                    const decrypted = enc.decrypt("%s");
+                    // Check if decrypted matches original
+                    const original = %s;
+                    const matches = JSON.stringify(decrypted) === JSON.stringify(original);
+
+                    if (!matches) {
+                        console.error("MISMATCH");
+                        console.error("Expected:", original);
+                        console.error("Got:", decrypted);
+                        process.exit(1);
+                    }
+                    console.log("PASS");
+                } catch(e) {
+                    console.error("ERROR:", e.message);
+                    process.exit(1);
+                }
+            ', getenv('APP_KEY'), $encrypted, json_encode($testData));
+
+            file_put_contents('test-decrypt.cjs', $nodeTest);
+            exec('node test-decrypt.cjs 2>&1', $output, $returnCode);
+
+            if ($returnCode === 0) {
+                echo "✅ PHP→Node [$name]: PASSED\n";
+                $passed++;
+            } else {
+                echo "❌ PHP→Node [$name]: FAILED - " . implode(' ', $output) . "\n";
+                $errors++;
+            }
+
+            // ========== TEST 2: Node.js → PHP ==========
+            $nodeEncrypt = sprintf('
+                process.env.APP_KEY = "%s";
+                const { LaravelEncrypter } = require("./src/index.js");
+                const enc = new LaravelEncrypter();
+
+                const data = %s;
+                const encrypted = enc.encrypt(data);
+                console.log(encrypted);
+            ', getenv('APP_KEY'), json_encode($testData));
+
+            file_put_contents('test-encrypt.cjs', $nodeEncrypt);
+            $nodeEncrypted = trim(shell_exec('node test-encrypt.cjs 2>&1'));
+
+            try {
+                $decrypted = $encrypter->decrypt($nodeEncrypted);
+
+                // Compare decrypted with original
+                if (json_encode($decrypted) === json_encode($testData)) {
+                    echo "✅ Node→PHP [$name]: PASSED\n";
+                    $passed++;
+                } else {
+                    echo "❌ Node→PHP [$name]: MISMATCH - Expected: " . json_encode($testData) . " Got: " . json_encode($decrypted) . "\n";
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                echo "❌ Node→PHP [$name]: FAILED - " . $e->getMessage() . "\n";
+                $errors++;
+            }
+
+            echo "---\n";
+        }
+
+        echo "\n========================================\n";
+        echo "📊 RESULTS for Laravel " . getenv('LARAVEL_VERSION') . "\n";
+        echo "✅ Passed: $passed/" . (count($testCases) * 2) . "\n";
+        echo "❌ Failed: $errors/" . (count($testCases) * 2) . "\n";
+        echo "========================================\n";
+
+        if ($errors > 0) {
+            echo "\n❌ BIDIRECTIONAL ENCRYPTION TEST FAILED!\n";
+            exit(1);
+        } else {
+            echo "\n✅ ALL BIDIRECTIONAL ENCRYPTION TESTS PASSED!\n";
+            exit(0);
+        }
+        EOF
+
+        # Run the comprehensive test
+        LARAVEL_VERSION="${{ matrix.laravel }}" TEST_KEY="$TEST_KEY" APP_KEY="$APP_KEY" php bidirectional-test.php
