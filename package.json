@@ -1,0 +1,57 @@
+{
+  "name": "laravel-node-encryption",
+  "version": "1.0.0",
+  "description": "Laravel-compatible encryption/decryption for Node.js - full compatibility with Laravel's encrypt() and decrypt()",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "prepare": "npm run lint && npm test"
+  },
+  "keywords": [
+    "laravel",
+    "encryption",
+    "decryption",
+    "crypto",
+    "aes",
+    "aes-256-cbc",
+    "php",
+    "node",
+    "nodejs",
+    "laravel-encryption",
+    "laravel-crypt"
+  ],
+  "author": "René Roscher <roscher794@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rene-Roscher/laravel-node-encryption.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Rene-Roscher/laravel-node-encryption/issues"
+  },
+  "homepage": "https://github.com/Rene-Roscher/laravel-node-encryption#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.56.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^6.1.1"
+  },
+  "optionalDependencies": {
+    "php-serialize": "^4.1.1"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}

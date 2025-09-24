@@ -1,0 +1,17 @@
+{
+    "extends": ["standard"],
+    "env": {
+        "node": true,
+        "jest": true,
+        "es6": true
+    },
+    "parserOptions": {
+        "ecmaVersion": 2020
+    },
+    "rules": {
+        "indent": ["error", 4],
+        "semi": ["error", "always"],
+        "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+        "space-before-function-paren": ["error", "never"]
+    }
+}

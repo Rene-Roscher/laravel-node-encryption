@@ -1,0 +1,14 @@
+test/
+.github/
+coverage/
+.gitignore
+.eslintrc*
+jest.config.js
+*.test.js
+*.spec.js
+.env
+.env.*
+PUBLISHING.md
+.git/
+.vscode/
+.idea/
