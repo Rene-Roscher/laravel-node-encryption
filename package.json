@@ -8,8 +8,7 @@
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "lint": "eslint src test",
-    "lint:fix": "eslint src test --fix",
-    "prepare": "npm run lint && npm test"
+    "lint:fix": "eslint src test --fix"
   },
   "keywords": [
     "laravel",

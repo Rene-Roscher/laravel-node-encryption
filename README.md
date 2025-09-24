@@ -8,7 +8,7 @@ Laravel-compatible encryption/decryption for Node.js. Fully compatible with Lara
 
 ## Features
 
-- ✅ 100% Laravel compatible (8.x - 11.x)
+- ✅ 100% Laravel compatible (8.x - 12.x)
 - ✅ Zero configuration (auto-detects `APP_KEY`)
 - ✅ AES-256-CBC encryption with HMAC-SHA256
 - ✅ No dependencies (optional `php-serialize` for complex objects)
