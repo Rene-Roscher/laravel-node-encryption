@@ -1,7 +1,7 @@
 # Laravel Node Encryption
 
 [![npm version](https://badge.fury.io/js/laravel-node-encryption.svg)](https://badge.fury.io/js/laravel-node-encryption)
-[![Tests](https://github.com/Rene-Roscher/laravel-node-encryption/actions/workflows/test.yml/badge.svg)](https://github.com/Rene-Roscher/laravel-node-encryption/actions/workflows/test.yml)
+[![CI](https://github.com/Rene-Roscher/laravel-node-encryption/actions/workflows/ci.yml/badge.svg)](https://github.com/Rene-Roscher/laravel-node-encryption/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Laravel-compatible encryption/decryption for Node.js. Fully compatible with Laravel's built-in encryption.
