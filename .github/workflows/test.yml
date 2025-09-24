@@ -75,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        laravel: [7, 8, 9, 10, 11]
+        laravel: [7, 8, 9, 10, 11, 12]
 
     steps:
     - uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
-        php-version: ${{ matrix.laravel == 7 && '7.4' || matrix.laravel == 8 && '8.0' || matrix.laravel == 9 && '8.1' || '8.3' }}
+        php-version: ${{ matrix.laravel == 7 && '7.4' || matrix.laravel == 8 && '8.0' || matrix.laravel == 9 && '8.1' || matrix.laravel >= 10 && '8.3' }}
         extensions: mbstring, xml, json
 
     - name: Setup Node.js
@@ -109,7 +109,13 @@ jobs:
         require 'vendor/autoload.php';
 
         $key = base64_decode(getenv('TEST_KEY'));
-        $encrypter = new \Illuminate\Encryption\Encrypter($key, 'aes-256-cbc');
+        // Laravel 7 requires key to be passed differently
+        $laravel_version = getenv('LARAVEL_VERSION');
+        if ($laravel_version == '7') {
+            $encrypter = new \Illuminate\Encryption\Encrypter($key);
+        } else {
+            $encrypter = new \Illuminate\Encryption\Encrypter($key, 'aes-256-cbc');
+        }
 
         // All test cases - verschiedene Datentypen!
         $testCases = [

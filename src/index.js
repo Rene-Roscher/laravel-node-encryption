@@ -2,10 +2,10 @@ const crypto = require('crypto');
 
 /**
  * Laravel-compatible Encryption class for Node.js
- * Full compatibility with Laravel 7.x through 11.x
+ * Full compatibility with Laravel 7.x through 12.x
  *
  * Tested with:
- * - Laravel 7.x, 8.x, 9.x, 10.x, 11.x
+ * - Laravel 7.x, 8.x, 9.x, 10.x, 11.x, 12.x
  * - Custom/legacy implementations
  * - Auto-detection of MAC calculation methods
  *
