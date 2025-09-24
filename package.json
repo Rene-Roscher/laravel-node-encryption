@@ -1,7 +1,7 @@
 {
   "name": "laravel-node-encryption",
   "version": "1.0.0",
-  "description": "Laravel-compatible encryption/decryption for Node.js - full compatibility with Laravel's encrypt() and decrypt()",
+  "description": "Bidirectional encryption between Laravel (PHP) and Node.js - share encrypted data seamlessly across platforms",
   "main": "src/index.js",
   "scripts": {
     "test": "jest",
@@ -14,6 +14,8 @@
     "laravel",
     "encryption",
     "decryption",
+    "bidirectional",
+    "cross-platform",
     "crypto",
     "aes",
     "aes-256-cbc",
@@ -21,7 +23,9 @@
     "node",
     "nodejs",
     "laravel-encryption",
-    "laravel-crypt"
+    "laravel-crypt",
+    "microservices",
+    "api"
   ],
   "author": "René Roscher <roscher794@gmail.com>",
   "license": "MIT",
