@@ -66,7 +66,7 @@ class LaravelEncrypter {
         'aes-128-cbc': { size: 16, aead: false },
         'aes-256-cbc': { size: 32, aead: false },
         'aes-128-gcm': { size: 16, aead: true },
-        'aes-256-gcm': { size: 32, aead: true },
+        'aes-256-gcm': { size: 32, aead: true }
     };
 
     /**
@@ -112,9 +112,9 @@ class LaravelEncrypter {
 
         // Laravel 10.x default settings (works for Laravel 5.x - 12.x)
         // These settings are optimized for Laravel and usually don't need to be changed
-        this.detectMacMethod = options.macMethod || 'laravel10';  // Laravel 10.x MAC method is default
-        this.macPrefix = options.macPrefix || 'laravel.';         // Not used for Laravel 10.x
-        this.autoDetectMac = options.autoDetectMac ?? false;      // Default off for better performance
+        this.detectMacMethod = options.macMethod || 'laravel10'; // Laravel 10.x MAC method is default
+        this.macPrefix = options.macPrefix || 'laravel.'; // Not used for Laravel 10.x
+        this.autoDetectMac = options.autoDetectMac ?? false; // Default off for better performance
 
         if (!this.supported(this.cipher)) {
             throw new Error(`Unsupported cipher: ${cipher}`);
@@ -284,7 +284,7 @@ class LaravelEncrypter {
         // Serialize the value if needed
         const valueToEncrypt = serialize ? this.serialize(value) : value;
 
-        let encrypted, tag = '';
+        let encrypted; let tag = '';
 
         if (this.isAead()) {
             // AEAD mode (GCM)
@@ -308,7 +308,7 @@ class LaravelEncrypter {
             iv: iv.toString('base64'),
             value: encrypted.toString('base64'),
             mac: '',
-            tag: tag
+            tag
         };
 
         // Generate MAC for non-AEAD ciphers
@@ -463,16 +463,16 @@ class LaravelEncrypter {
      * @returns {string} - The detected MAC method
      */
     detectMacMethodFromPayload(payload) {
-        const data = typeof payload === 'string' ?
-            JSON.parse(Buffer.from(payload, 'base64').toString('utf8')) :
-            payload;
+        const data = typeof payload === 'string'
+            ? JSON.parse(Buffer.from(payload, 'base64').toString('utf8'))
+            : payload;
 
         // Laravel 10.x uses direct concatenation of base64 strings
         const message = data.iv + data.value;
         const mac = crypto.createHmac('sha256', this.key).update(message).digest('hex');
 
         if (mac === data.mac) {
-            console.log(`✅ Auto-detected Laravel 10.x MAC method`);
+            console.log('✅ Auto-detected Laravel 10.x MAC method');
             return 'laravel10';
         }
 
@@ -542,7 +542,7 @@ class LaravelEncrypter {
             return {
                 decoded: data,
                 providedMac: data.mac,
-                calculatedMac: calculatedMac,
+                calculatedMac,
                 macMatches: calculatedMac === data.mac,
                 keyLength: this.key.length,
                 keyBase64: this.key.toString('base64'),
@@ -621,4 +621,3 @@ class Crypt {
 
 // Export both classes
 module.exports = { LaravelEncrypter, Crypt };
-
