@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1](https://github.com/Rene-Roscher/laravel-node-encryption/compare/v1.0.0...v1.0.1) (2025-09-24)
+
+
+### Bug Fixes
+
+* resolve all ESLint errors ([3778896](https://github.com/Rene-Roscher/laravel-node-encryption/commit/3778896ff8cd71bb17afa207fd72b79f871376ae))
+
 ## 1.0.0 (2025-09-24)
 
 
