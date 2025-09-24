@@ -1,0 +1,173 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-node:
+    name: Node.js Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run tests
+      run: npm test
+
+    - name: Generate coverage
+      run: npm run test:coverage
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: matrix.node-version == '20.x'
+
+  test-laravel-compatibility:
+    name: Laravel ${{ matrix.laravel }} Compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        laravel: ['8.x', '9.x', '10.x', '11.x']
+        include:
+          - laravel: '8.x'
+            php: '7.4'
+          - laravel: '9.x'
+            php: '8.0'
+          - laravel: '10.x'
+            php: '8.1'
+          - laravel: '11.x'
+            php: '8.2'
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php }}
+        extensions: mbstring, xml, ctype, iconv, intl, pdo, pdo_mysql, dom, filter, gd, json, mbstring, pdo
+        coverage: none
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20.x'
+
+    - name: Create Laravel project
+      run: |
+        composer create-project laravel/laravel:^${{ matrix.laravel }} test-app
+        cd test-app
+        php artisan key:generate
+        APP_KEY=$(grep APP_KEY .env | cut -d '=' -f2)
+        echo "APP_KEY=$APP_KEY" >> $GITHUB_ENV
+
+    - name: Install Node package
+      run: |
+        npm install ../
+
+    - name: Create integration test
+      run: |
+        cat > test-integration.js << 'EOF'
+        const { LaravelEncrypter } = require('laravel-node-encryption');
+        const { execSync } = require('child_process');
+
+        // Test data
+        const testCases = [
+          'Simple string',
+          123456,
+          { key: 'value', nested: { deep: 'object' } },
+          ['array', 'with', 'items'],
+          true,
+          false,
+          null
+        ];
+
+        const encrypter = new LaravelEncrypter();
+        let passed = 0;
+        let failed = 0;
+
+        console.log('Testing Laravel ' + process.env.LARAVEL_VERSION);
+
+        // Test Node -> Laravel
+        testCases.forEach((testData, index) => {
+          try {
+            const encrypted = encrypter.encrypt(testData);
+
+            // Create PHP test script
+            const phpCode = `<?php
+            require 'vendor/autoload.php';
+            $app = require_once 'bootstrap/app.php';
+            $kernel = $app->make(Illuminate\\Contracts\\Console\\Kernel::class);
+            $kernel->bootstrap();
+
+            try {
+              $decrypted = \\Crypt::decrypt('${encrypted}');
+              echo json_encode(['success' => true, 'data' => $decrypted]);
+            } catch (Exception $e) {
+              echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            }`;
+
+            require('fs').writeFileSync('test-app/test.php', phpCode);
+            const result = JSON.parse(execSync('cd test-app && php test.php').toString());
+
+            if (result.success) {
+              console.log(`✅ Test ${index + 1}: Node->Laravel passed`);
+              passed++;
+            } else {
+              console.log(`❌ Test ${index + 1}: Node->Laravel failed - ${result.error}`);
+              failed++;
+            }
+          } catch (e) {
+            console.log(`❌ Test ${index + 1}: Error - ${e.message}`);
+            failed++;
+          }
+        });
+
+        // Test Laravel -> Node
+        testCases.forEach((testData, index) => {
+          try {
+            const phpCode = `<?php
+            require 'vendor/autoload.php';
+            $app = require_once 'bootstrap/app.php';
+            $kernel = $app->make(Illuminate\\Contracts\\Console\\Kernel::class);
+            $kernel->bootstrap();
+
+            $data = json_decode('${JSON.stringify(testData)}', true);
+            echo \\Crypt::encrypt($data ?? '${testData}');`;
+
+            require('fs').writeFileSync('test-app/test.php', phpCode);
+            const encrypted = execSync('cd test-app && php test.php').toString().trim();
+
+            const decrypted = encrypter.decrypt(encrypted);
+            console.log(`✅ Test ${index + 1}: Laravel->Node passed`);
+            passed++;
+          } catch (e) {
+            console.log(`❌ Test ${index + 1}: Laravel->Node failed - ${e.message}`);
+            failed++;
+          }
+        });
+
+        console.log(`\n📊 Results: ${passed} passed, ${failed} failed`);
+
+        if (failed > 0) {
+          process.exit(1);
+        }
+        EOF
+
+    - name: Run integration tests
+      run: |
+        export LARAVEL_VERSION="${{ matrix.laravel }}"
+        node test-integration.js

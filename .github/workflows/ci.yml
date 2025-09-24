@@ -1,0 +1,194 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run ESLint
+      run: npm run lint
+
+  test:
+    name: Test Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [16, 18, 20]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run tests
+      run: npm test
+
+    - name: Generate coverage
+      if: matrix.os == 'ubuntu-latest' && matrix.node == 20
+      run: npm run test:coverage
+
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.node == 20
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: false
+
+  laravel-integration:
+    name: Laravel ${{ matrix.laravel }} Integration
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - laravel: '8.x'
+            php: '7.4'
+            node: 16
+          - laravel: '9.x'
+            php: '8.0'
+            node: 18
+          - laravel: '10.x'
+            php: '8.1'
+            node: 18
+          - laravel: '11.x'
+            php: '8.2'
+            node: 20
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PHP ${{ matrix.php }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php }}
+        extensions: mbstring, xml, json
+        coverage: none
+
+    - name: Setup Node.js ${{ matrix.node }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node }}
+
+    - name: Create Laravel test app
+      run: |
+        composer create-project laravel/laravel:^${{ matrix.laravel }} test-app --prefer-dist
+        cd test-app
+        php artisan key:generate
+
+    - name: Install package
+      run: |
+        cd test-app
+        npm install ../
+
+    - name: Run integration test
+      run: |
+        cd test-app
+        cat > test.js << 'EOF'
+        const { LaravelEncrypter } = require('laravel-node-encryption');
+        const { execSync } = require('child_process');
+        const fs = require('fs');
+
+        // Get APP_KEY from Laravel
+        const envContent = fs.readFileSync('.env', 'utf8');
+        const appKey = envContent.match(/APP_KEY=(.+)/)[1];
+        process.env.APP_KEY = appKey;
+
+        const encrypter = new LaravelEncrypter();
+
+        // Test encryption
+        const testData = { message: 'Hello from Node.js', laravel: '${{ matrix.laravel }}' };
+        const encrypted = encrypter.encrypt(testData);
+
+        // Test decryption in Laravel
+        const phpCode = `<?php
+        require 'vendor/autoload.php';
+        $app = require_once 'bootstrap/app.php';
+        $kernel = $app->make(Illuminate\\Contracts\\Console\\Kernel::class);
+        $kernel->bootstrap();
+
+        try {
+          $decrypted = \\Crypt::decrypt('${encrypted}');
+          echo json_encode(['success' => true, 'data' => $decrypted]);
+        } catch (Exception $e) {
+          echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+          exit(1);
+        }`;
+
+        fs.writeFileSync('decrypt-test.php', phpCode);
+        const result = JSON.parse(execSync('php decrypt-test.php').toString());
+
+        if (!result.success) {
+          console.error('Decryption failed:', result.error);
+          process.exit(1);
+        }
+
+        console.log('✅ Laravel ${{ matrix.laravel }} integration test passed');
+        EOF
+
+        node test.js
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run npm audit
+      run: npm audit --audit-level=moderate || true
+
+    - name: Check for known vulnerabilities
+      run: npx better-npm-audit audit
