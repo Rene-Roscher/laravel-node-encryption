@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0](https://github.com/Rene-Roscher/laravel-node-encryption/compare/v2.0.0...v2.1.0) (2026-03-27)
+
+
+### Features
+
+* add Laravel 13 to CI tests and remove EOL Laravel 8/9 ([a875e23](https://github.com/Rene-Roscher/laravel-node-encryption/commit/a875e230bea44ae56c0a74e2b0ee1e2a2930a232))
+
+
+### Bug Fixes
+
+* resolve npm audit vulnerabilities in dev dependencies (ajv, flatted, js-yaml, minimatch) ([13ce5f1](https://github.com/Rene-Roscher/laravel-node-encryption/commit/13ce5f152156f0e8a5e49483abee2f80e88432b8))
+
 ## 1.0.0 (2025-09-24)
 
 
