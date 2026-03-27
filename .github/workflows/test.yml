@@ -75,7 +75,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        laravel: [8, 9, 10, 11, 12]
+        # Laravel 8 (EOL Jan 2023) and Laravel 9 (EOL Feb 2024) have been removed.
+        # Supported versions: Laravel 10+ (currently maintained).
+        laravel: [10, 11, 12, 13]
 
     steps:
     - uses: actions/checkout@v4
@@ -83,7 +85,7 @@ jobs:
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
-        php-version: ${{ matrix.laravel == 8 && '8.0' || matrix.laravel == 9 && '8.1' || matrix.laravel >= 10 && '8.3' }}
+        php-version: ${{ matrix.laravel == 10 && '8.1' || matrix.laravel >= 11 && '8.3' }}
         extensions: mbstring, xml, json
 
     - name: Setup Node.js

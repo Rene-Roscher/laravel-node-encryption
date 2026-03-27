@@ -19,7 +19,7 @@ Perfect for microservices, APIs, and hybrid applications where you need to:
 ## Features
 
 - ✅ **Fully bidirectional** - Encrypt/decrypt in both directions
-- ✅ **100% Laravel compatible** (8.x - 12.x)
+- ✅ **100% Laravel compatible** (10.x - 13.x; 8.x/9.x also work but are EOL)
 - ✅ **Zero configuration** - Auto-detects `APP_KEY`
 - ✅ **Production ready** - Battle-tested AES-256-CBC with HMAC-SHA256
 - ✅ **No dependencies** - Lightweight with optional `php-serialize`
@@ -159,13 +159,14 @@ app.post('/decrypt', (req, res) => {
 
 ## Compatibility
 
-| Laravel | Node.js | PHP    | Status |
-|---------|---------|--------|--------|
-| 12.x    | 18+     | 8.3+   | ✅     |
-| 11.x    | 18+     | 8.2+   | ✅     |
-| 10.x    | 16+     | 8.1+   | ✅     |
-| 9.x     | 14+     | 8.0+   | ✅     |
-| 8.x     | 14+     | 7.3+   | ✅     |
+| Laravel | Node.js | PHP    | Status        |
+|---------|---------|--------|---------------|
+| 13.x    | 18+     | 8.2+   | ✅ Supported  |
+| 12.x    | 18+     | 8.2+   | ✅ Supported  |
+| 11.x    | 18+     | 8.2+   | ✅ Supported  |
+| 10.x    | 16+     | 8.1+   | ✅ Supported  |
+| 9.x     | 14+     | 8.0+   | ⚠️ EOL (Feb 2024) |
+| 8.x     | 14+     | 7.3+   | ⚠️ EOL (Jan 2023) |
 
 ## License
 
