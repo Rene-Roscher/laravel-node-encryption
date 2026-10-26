@@ -1,6 +1,75 @@
 const crypto = require('crypto');
 
 /**
+ * PHP's base64_decode($input, $strict).
+ *
+ * Non-strict mode skips every character outside the alphabet (including "=" and whitespace)
+ * and never fails. Strict mode skips only whitespace, fails on other invalid characters, data
+ * after padding, a dangling sixth bit and wrong padding, and accepts missing padding.
+ * Laravel relies on both modes, and Buffer.from(x, 'base64') matches neither exactly.
+ *
+ * @param {string} input
+ * @param {boolean} strict
+ * @returns {Buffer|null} null when strict decoding fails
+ */
+function phpBase64Decode(input, strict) {
+    const out = [];
+    let acc = 0;
+    let count = 0;
+    let padding = 0;
+
+    for (let i = 0; i < input.length; i++) {
+        const c = input.charCodeAt(i);
+        let v;
+        if (c === 0x3d) { // =
+            padding++;
+            continue;
+        } else if (c >= 0x41 && c <= 0x5a) { // A-Z
+            v = c - 0x41;
+        } else if (c >= 0x61 && c <= 0x7a) { // a-z
+            v = c - 0x61 + 26;
+        } else if (c >= 0x30 && c <= 0x39) { // 0-9
+            v = c - 0x30 + 52;
+        } else if (c === 0x2b) { // +
+            v = 62;
+        } else if (c === 0x2f) { // /
+            v = 63;
+        } else if (c === 0x09 || c === 0x0a || c === 0x0d || c === 0x20) {
+            continue;
+        } else if (strict) {
+            return null;
+        } else {
+            continue;
+        }
+        if (strict && padding > 0) {
+            return null;
+        }
+        acc = ((acc << 6) | v) & 0xffffff;
+        count++;
+        if (count % 4 === 0) {
+            out.push((acc >> 16) & 0xff, (acc >> 8) & 0xff, acc & 0xff);
+            acc = 0;
+        }
+    }
+
+    // A trailing group of 2 or 3 characters yields 1 or 2 bytes; 1 character yields none.
+    if (count % 4 === 2) {
+        out.push((acc >> 4) & 0xff);
+    } else if (count % 4 === 3) {
+        out.push((acc >> 10) & 0xff, (acc >> 2) & 0xff);
+    }
+    if (strict) {
+        if (count % 4 === 1) {
+            return null;
+        }
+        if (padding > 0 && (padding > 2 || (count + padding) % 4 !== 0)) {
+            return null;
+        }
+    }
+    return Buffer.from(out);
+}
+
+/**
  * Laravel-compatible Encryption class for Node.js
  * Full compatibility with Laravel 10.x through 13.x
  *
@@ -345,35 +414,52 @@ class LaravelEncrypter {
                 this.detectMacMethodFromPayload(payload);
             }
 
-            // Decode the payload
+            // Decode and validate the payload (Laravel's getJsonPayload / validPayload)
             const data = this.getJsonPayload(payload);
-
-            // Verify MAC for non-AEAD ciphers
-            if (!this.isAead() && !this.validMac(data)) {
-                throw new Error('The MAC is invalid.');
-            }
-
-            const iv = Buffer.from(data.iv, 'base64');
-            const encrypted = Buffer.from(data.value, 'base64');
+            const iv = phpBase64Decode(data.iv, true);
+            // openssl_decrypt() base64-decodes the value leniently
+            const encrypted = phpBase64Decode(data.value, false);
+            // PHP's empty("0") is true, so Laravel sees neither "" nor "0" as a tag
+            const hasTag = typeof data.tag === 'string' && data.tag !== '' && data.tag !== '0';
+            const tag = hasTag ? phpBase64Decode(data.tag, false) : null;
 
             let decrypted;
 
             if (this.isAead()) {
-                // AEAD mode (GCM)
-                const decipher = crypto.createDecipheriv(this.cipher, this.key, iv);
-                decipher.setAuthTag(Buffer.from(data.tag, 'base64'));
-                decrypted = Buffer.concat([
-                    decipher.update(encrypted),
-                    decipher.final()
-                ]).toString('utf8');
+                // AEAD mode (GCM): the payload needs a 16-byte tag
+                if (tag === null || tag.length !== 16) {
+                    throw new Error('Could not decrypt the data.');
+                }
+                try {
+                    const decipher = crypto.createDecipheriv(this.cipher, this.key, iv);
+                    decipher.setAuthTag(tag);
+                    decrypted = Buffer.concat([
+                        decipher.update(encrypted),
+                        decipher.final()
+                    ]);
+                } catch (e) {
+                    throw new Error('Could not decrypt the data.');
+                }
             } else {
-                // CBC mode
-                const decipher = crypto.createDecipheriv(this.cipher, this.key, iv);
-                decrypted = Buffer.concat([
-                    decipher.update(encrypted),
-                    decipher.final()
-                ]).toString('utf8');
+                // CBC mode: a payload must not carry a tag, and the MAC is verified first
+                if (tag !== null) {
+                    throw new Error('Could not decrypt the data.');
+                }
+                if (!this.validMac(data)) {
+                    throw new Error('The MAC is invalid.');
+                }
+                try {
+                    const decipher = crypto.createDecipheriv(this.cipher, this.key, iv);
+                    decrypted = Buffer.concat([
+                        decipher.update(encrypted),
+                        decipher.final()
+                    ]);
+                } catch (e) {
+                    throw new Error('Could not decrypt the data.');
+                }
             }
+
+            decrypted = decrypted.toString('utf8');
 
             // Unserialize if needed
             return unserialize ? this.unserialize(decrypted) : decrypted;
@@ -393,52 +479,56 @@ class LaravelEncrypter {
 
     /**
      * Get the JSON payload from encrypted data
+     * (json_decode(base64_decode($payload), true) plus Laravel's validPayload)
      * @param {string} payload
      * @returns {object}
      */
     getJsonPayload(payload) {
+        let data;
         try {
-            const decoded = Buffer.from(payload, 'base64').toString('utf8');
-            const data = JSON.parse(decoded);
-
-            // Validate payload structure
-            if (!this.validPayload(data)) {
-                throw new Error('Invalid payload structure.');
+            if (typeof payload !== 'string') {
+                throw new Error('The payload is invalid.');
             }
-
-            return data;
+            // PHP's json_decode rejects invalid UTF-8
+            const decoded = new TextDecoder('utf-8', { fatal: true })
+                .decode(phpBase64Decode(payload, false));
+            data = JSON.parse(decoded);
         } catch (error) {
-            throw new Error(`Invalid payload: ${error.message}`);
+            throw new Error('Invalid payload: The payload is invalid.');
         }
+
+        // Validate payload structure
+        if (!this.validPayload(data)) {
+            throw new Error('Invalid payload: The payload is invalid.');
+        }
+
+        return data;
     }
 
     /**
-     * Validate payload structure
+     * Validate payload structure (Laravel's validPayload)
      * @param {object} payload
      * @returns {boolean}
      */
     validPayload(payload) {
-        if (typeof payload !== 'object') return false;
-
-        // Check required fields
-        if (!payload.iv || !payload.value) return false;
-
-        // Check MAC for non-AEAD
-        if (!this.isAead() && !payload.mac) return false;
-
-        // Check tag for AEAD
-        if (this.isAead() && payload.tag === undefined) return false;
-
-        // Validate base64 encoding
-        try {
-            Buffer.from(payload.iv, 'base64');
-            Buffer.from(payload.value, 'base64');
-            if (payload.tag) Buffer.from(payload.tag, 'base64');
-        } catch {
+        if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
             return false;
         }
 
-        return true;
+        // iv, value and mac must be strings (mac is present, but empty, for GCM)
+        for (const item of ['iv', 'value', 'mac']) {
+            if (!Object.prototype.hasOwnProperty.call(payload, item) || typeof payload[item] !== 'string') {
+                return false;
+            }
+        }
+
+        // tag is optional, but a string when present
+        if (payload.tag !== undefined && payload.tag !== null && typeof payload.tag !== 'string') {
+            return false;
+        }
+
+        const iv = phpBase64Decode(payload.iv, true);
+        return iv !== null && iv.length === this.getIvSize();
     }
 
     /**
@@ -489,7 +579,7 @@ class LaravelEncrypter {
         const calculated = this.hash(payload);
         const provided = payload.mac;
 
-        if (!provided || calculated.length !== provided.length) {
+        if (typeof provided !== 'string' || calculated.length !== provided.length) {
             return false;
         }
 
@@ -505,8 +595,8 @@ class LaravelEncrypter {
      * @returns {number}
      */
     getIvSize() {
-        // Standard IV size for CBC and GCM modes
-        return 16;
+        // openssl_cipher_iv_length(): 16 for CBC, 12 for GCM
+        return this.isAead() ? 12 : 16;
     }
 
     /**
@@ -619,5 +709,5 @@ class Crypt {
     }
 }
 
-// Export both classes
-module.exports = { LaravelEncrypter, Crypt };
+// Export both classes (_internal is for the tests)
+module.exports = { LaravelEncrypter, Crypt, _internal: { phpBase64Decode } };
