@@ -9,3 +9,6 @@ coverage/
 *.swo
 dist/
 .npm/
+# PHP interop harness deps (CI installs them)
+/vendor/
+composer.lock

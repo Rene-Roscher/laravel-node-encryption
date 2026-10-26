@@ -7,8 +7,8 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
-    "lint": "eslint src test",
-    "lint:fix": "eslint src test --fix"
+    "lint": "eslint src test scripts",
+    "lint:fix": "eslint src test scripts --fix"
   },
   "keywords": [
     "laravel",

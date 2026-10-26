@@ -1,0 +1,12 @@
+{
+    "name": "rene-roscher/laravel-node-encryption-interop",
+    "description": "Dev-only interop harness: verifies the Node.js port against the real Laravel encrypter.",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "illuminate/encryption": "^10.0 || ^11.0 || ^12.0 || ^13.0"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
