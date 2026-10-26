@@ -8,6 +8,8 @@
 
 Share encrypted data seamlessly between your Laravel backend and Node.js services. Encrypt in Laravel, decrypt in Node.js - or vice versa!
 
+The same library exists for [Go](https://github.com/Rene-Roscher/laravel-go-encryption) and [Rust](https://github.com/Rene-Roscher/laravel-rust-encryption).
+
 ## Why This Package?
 
 Perfect for microservices, APIs, and hybrid applications where you need to:
