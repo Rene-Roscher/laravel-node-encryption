@@ -50,7 +50,7 @@ const decrypted = encrypter.decrypt(laravelEncryptedString);
 ### `new LaravelEncrypter(key?, cipher?)`
 
 - `key` - Encryption key (defaults to `process.env.APP_KEY`)
-- `cipher` - Cipher method (default: `'aes-256-cbc'`)
+- `cipher` - `aes-128-cbc`, `aes-256-cbc` (default), `aes-128-gcm` or `aes-256-gcm`, case-insensitive; must match Laravel's `config('app.cipher')`
 
 ### Methods
 
@@ -157,6 +157,18 @@ app.post('/decrypt', (req, res) => {
 });
 ```
 
+## Limitations
+
+- Plaintext is UTF-8 text. Binary strings that PHP can hold are not supported.
+- JavaScript has one number type: PHP floats with an integral value (`2.0`) come back as `2`,
+  and integers beyond 2^53 lose precision. `Infinity` from PHP decodes to `NaN`
+  (a limitation of `php-serialize`).
+- PHP objects (Eloquent models, collections, `stdClass`) cannot be decoded and throw; they are
+  never instantiated. Encrypt plain arrays or JSON strings instead.
+- Without the optional `php-serialize` package, only strings, numbers, booleans and `null` use
+  PHP's serialization format; objects and arrays are written as JSON inside a PHP string, which
+  Laravel reads back as a string.
+
 ## Compatibility
 
 | Laravel | Node.js | PHP    | Status        |
@@ -167,6 +179,24 @@ app.post('/decrypt', (req, res) => {
 | 10.x    | 16+     | 8.1+   | ✅ Supported  |
 | 9.x     | 14+     | 8.0+   | ⚠️ EOL (Feb 2024) |
 | 8.x     | 14+     | 7.3+   | ⚠️ EOL (Jan 2023) |
+
+## Testing
+
+```bash
+npm test                          # unit tests + Laravel-generated vectors
+npm run test:coverage             # with the coverage thresholds
+composer install                  # once, for the interop harness (needs PHP 8.2+)
+php scripts/generate_vectors.php  # regenerate fixtures/vectors.json with real Laravel
+node scripts/genvectors.js | php scripts/verify_node_vectors.php
+node scripts/mutations.js | php scripts/verify_mutations.php
+```
+
+`fixtures/vectors.json` holds payloads produced by the real `illuminate/encryption` for all four
+ciphers (strings and serialized values). CI regenerates them for Laravel 10, 11, 12 and 13 and
+checks both directions: Jest decrypts what Laravel encrypted, and Laravel decrypts what Node
+encrypted. `scripts/mutations.js` also emits thousands of valid and mutated payloads with this
+package's verdict on each; `scripts/verify_mutations.php` asks Laravel about the same payloads,
+and both must accept and reject exactly the same ones.
 
 ## License
 
