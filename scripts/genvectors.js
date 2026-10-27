@@ -7,6 +7,10 @@
 // decrypt (the PHP-serialize path) and build the values named in scripts/cases.php that
 // JavaScript can represent: it has no separate integer type, no 64-bit integers, no binary
 // strings in the string API and no ordered array/list distinction beyond arrays vs objects.
+//
+// The app-layer vectors cover random keys, cookies, Eloquent encrypted casts and encrypted
+// sessions.
+const crypto = require('crypto');
 const { LaravelEncrypter } = require('../src/index');
 
 const key = Buffer.alloc(32, 0x2b);
@@ -67,6 +71,75 @@ for (const cipher of ['aes-128-cbc', 'aes-256-cbc', 'aes-128-gcm', 'aes-256-gcm'
             case: name,
             cipher,
             payload: enc.encrypt(value)
+        });
+    }
+}
+
+for (const cipher of ['aes-128-cbc', 'aes-256-cbc', 'aes-128-gcm', 'aes-256-gcm']) {
+    const size = cipher.includes('128') ? 16 : 32;
+    const b64 = (text) => Buffer.from(text).toString('base64');
+
+    // Random keys: every byte value can appear in a key.
+    for (let i = 0; i < 6; i++) {
+        const randomKey = crypto.randomBytes(size);
+        const enc = new LaravelEncrypter(randomKey, cipher);
+        ['Hello, World!', '', 'Grüße 世界 🚀 café'].forEach((text, n) => {
+            vectors.push({
+                kind: 'random_key',
+                name: `${cipher}/key${i}/${n}`,
+                cipher,
+                key_b64: randomKey.toString('base64'),
+                plaintext_b64: b64(text),
+                payload: enc.encryptString(text)
+            });
+        });
+    }
+
+    const enc = new LaravelEncrypter(key.subarray(0, size), cipher);
+
+    // Cookies, as EncryptCookies expects them.
+    for (const [name, value] of [
+        ['laravel_session', '0123456789abcdef0123456789abcdef01234567'],
+        ['XSRF-TOKEN', ''],
+        ['a b', 'with|pipe|chars'],
+        ['küche', 'Grüße 世界']
+    ]) {
+        vectors.push({
+            kind: 'cookie',
+            name: `${cipher}/cookie/${name}`,
+            cipher,
+            cookie_name: name,
+            value_b64: b64(value),
+            payload: enc.encryptCookie(name, value)
+        });
+    }
+
+    // Eloquent casts: encrypted values are Crypt::encryptString() of the value or its JSON.
+    for (const [attribute, plain] of [
+        ['plain', 'hello wörld'],
+        ['list', '{"x":1,"y":[1,2],"z":"ü"}'],
+        ['object', '{"k":"v","n":3}'],
+        ['collection', '[1,"two",3.5]']
+    ]) {
+        vectors.push({
+            kind: 'cast',
+            name: `${cipher}/cast/${attribute}`,
+            cipher,
+            attribute,
+            plaintext_b64: b64(plain),
+            payload: enc.encryptString(plain)
+        });
+    }
+
+    // Encrypted sessions: Crypt::encrypt() of the serialized attributes.
+    const attributes = { user_id: 7, cart: { apple: 2, pear: 1 }, name: 'Grüße' };
+    for (const [serialization, inner] of [['php', enc.serialize(attributes)], ['json', JSON.stringify(attributes)]]) {
+        vectors.push({
+            kind: 'session',
+            name: `${cipher}/session/${serialization}`,
+            cipher,
+            serialization,
+            payload: enc.encrypt(inner)
         });
     }
 }

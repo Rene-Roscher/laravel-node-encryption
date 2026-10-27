@@ -6,14 +6,16 @@ declare(strict_types=1);
 // fixtures/vectors.json. test/laravel-vectors.test.js decrypts them.
 //
 //   string:      Crypt::encryptString(plaintext)
-//   serialized:  Crypt::encrypt(value); the PHP serialize() output is stored so the Rust
-//                codec can be compared with PHP byte for byte.
+//   serialized:  Crypt::encrypt(value); the PHP serialize() output is stored so the Node
+//                codec can be compared with PHP.
+//   key rotation: payloads encrypted with a second key, to be read via previous keys.
 
 require __DIR__.'/../vendor/autoload.php';
 
 use Illuminate\Encryption\Encrypter;
 
 $rawKey = str_repeat("\x2b", 32); // fixed, reproducible
+$oldKey = str_repeat("\x7a", 32);
 
 $plaintexts = [
     'simple' => 'Hello, World!',
@@ -44,9 +46,11 @@ $cases['float_sweep'] = $sweep;
 
 $vectors = [];
 $serialized = [];
+$rotated = [];
 foreach (['aes-128-cbc', 'aes-256-cbc', 'aes-128-gcm', 'aes-256-gcm'] as $cipher) {
     $size = str_contains($cipher, '128') ? 16 : 32;
     $enc = new Encrypter(substr($rawKey, 0, $size), $cipher);
+    $old = new Encrypter(substr($oldKey, 0, $size), $cipher);
 
     foreach ($plaintexts as $name => $pt) {
         $vectors[] = [
@@ -65,9 +69,16 @@ foreach (['aes-128-cbc', 'aes-256-cbc', 'aes-128-gcm', 'aes-256-gcm'] as $cipher
             'payload' => $enc->encrypt($value),
         ];
     }
+
+    $rotated[] = [
+        'name' => "{$cipher}/rotated",
+        'cipher' => $cipher,
+        'plaintext_b64' => base64_encode('encrypted with the previous key'),
+        'payload' => $old->encryptString('encrypted with the previous key'),
+    ];
 }
 
-// Objects are read-only in Node.
+// Objects cannot be decoded in Node.
 $cipher = 'aes-256-cbc';
 $enc = new Encrypter($rawKey, $cipher);
 $object = new stdClass();
@@ -86,10 +97,12 @@ file_put_contents(
     json_encode([
         'laravel' => \Composer\InstalledVersions::getVersion('illuminate/encryption'),
         'key_b64' => base64_encode($rawKey),
+        'previous_key_b64' => base64_encode($oldKey),
         'vectors' => $vectors,
         'serialized' => $serialized,
         'objects' => $objects,
+        'rotated' => $rotated,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n"
 );
 
-fwrite(STDERR, 'Wrote '.(count($vectors) + count($serialized) + count($objects))." Laravel vectors to fixtures/vectors.json\n");
+fwrite(STDERR, 'Wrote '.(count($vectors) + count($serialized) + count($objects) + count($rotated))." Laravel vectors to fixtures/vectors.json\n");

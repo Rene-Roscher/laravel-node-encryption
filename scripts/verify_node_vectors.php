@@ -9,7 +9,11 @@ declare(strict_types=1);
 
 require __DIR__.'/../vendor/autoload.php';
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Encryption\Encrypter;
+use Illuminate\Session\EncryptedStore;
+
+require __DIR__.'/app_classes.php';
 
 $data = json_decode(stream_get_contents(STDIN), true);
 
@@ -43,15 +47,58 @@ function normalize(mixed $value): string
 $failures = 0;
 foreach ($data['vectors'] as $v) {
     $size = str_contains($v['cipher'], '128') ? 16 : 32;
-    $enc = new Encrypter(substr($rawKey, 0, $size), $v['cipher']);
+    $key = isset($v['key_b64']) ? base64_decode($v['key_b64']) : substr($rawKey, 0, $size);
+    $enc = new Encrypter($key, $v['cipher']);
 
     try {
-        if ($v['kind'] === 'serialized') {
-            $got = normalize($enc->decrypt($v['payload']));
-            $want = normalize($cases[$v['case']]);
-        } else {
-            $got = $enc->decryptString($v['payload']);
-            $want = base64_decode($v['plaintext_b64']);
+        switch ($v['kind']) {
+            case 'serialized':
+                $got = normalize($enc->decrypt($v['payload']));
+                $want = normalize($cases[$v['case']]);
+                break;
+
+            case 'cookie':
+                // What EncryptCookies does on the way in: decrypt, then check the prefix.
+                $got = validate_cookie($v['cookie_name'], $enc->decrypt($v['payload'], false), $enc);
+                $want = base64_decode($v['value_b64']);
+                break;
+
+            case 'cast':
+                // An Eloquent model reading an encrypted attribute from the database.
+                Model::encryptUsing($enc);
+                $model = new CastModel();
+                $model->setRawAttributes([$v['attribute'] => $v['payload']]);
+                $value = $model->{$v['attribute']};
+                $want = base64_decode($v['plaintext_b64']);
+                if (is_string($value)) {
+                    $got = $value;
+                } else {
+                    // arrays, objects and collections: compare as JSON
+                    $got = json_encode($value);
+                    $want = json_encode(json_decode($want));
+                }
+                break;
+
+            case 'session':
+                // A session store with session.encrypt reading what Node wrote.
+                $handler = new MemorySessionHandler();
+                $handler->data = $v['payload'];
+                if ($v['serialization'] === 'json') {
+                    if ((new ReflectionMethod(EncryptedStore::class, '__construct'))->getNumberOfParameters() < 5) {
+                        continue 2; // this Laravel has no JSON session serialization
+                    }
+                    $store = new EncryptedStore('session', $handler, $enc, null, 'json');
+                } else {
+                    $store = new EncryptedStore('session', $handler, $enc);
+                }
+                $store->start();
+                $got = json_encode([$store->get('user_id'), $store->get('cart'), $store->get('name')]);
+                $want = json_encode([7, ['apple' => 2, 'pear' => 1], 'Grüße']);
+                break;
+
+            default: // string, random_key
+                $got = $enc->decryptString($v['payload']);
+                $want = base64_decode($v['plaintext_b64']);
         }
         $ok = $got === $want;
     } catch (\Throwable $e) {
