@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0](https://github.com/Rene-Roscher/laravel-node-encryption/compare/v2.0.0...v2.1.0) (2026-10-27)
+
+
+### Features
+
+* add Laravel 13 to CI tests and remove EOL Laravel 8/9 ([a875e23](https://github.com/Rene-Roscher/laravel-node-encryption/commit/a875e230bea44ae56c0a74e2b0ee1e2a2930a232))
+* appearsEncrypted, compared with Laravel's appearsEncrypted on mutated payloads ([b376939](https://github.com/Rene-Roscher/laravel-node-encryption/commit/b37693925b5c27a27ab9e696f2a4162624f895f4))
+* previous keys, cookie helpers and Laravel's lenient base64: key parsing ([da9ceec](https://github.com/Rene-Roscher/laravel-node-encryption/commit/da9ceece56eb9658dee106a9cd0d28dfd85b12be))
+
+
+### Bug Fixes
+
+* resolve npm audit vulnerabilities in dev dependencies (ajv, flatted, js-yaml, minimatch) ([13ce5f1](https://github.com/Rene-Roscher/laravel-node-encryption/commit/13ce5f152156f0e8a5e49483abee2f80e88432b8))
+* update dev dependencies to resolve npm audit advisories ([cb6d17a](https://github.com/Rene-Roscher/laravel-node-encryption/commit/cb6d17aae088700213a649d96a3e97f1bcac0611))
+* use a 12-byte IV for GCM and validate payloads like Laravel ([1478e81](https://github.com/Rene-Roscher/laravel-node-encryption/commit/1478e81fc73ce2695f53202a894f132c1cf51065))
+
 ## 1.0.0 (2025-09-24)
 
 
