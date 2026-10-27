@@ -148,6 +148,23 @@ describe('MAC helpers', () => {
     });
 });
 
+describe('hostile serialized data', () => {
+    const enc = newEnc('aes-256-cbc');
+
+    test('deep nesting is an ordinary error, not a crash', () => {
+        const deep = 'a:1:{i:0;'.repeat(200000) + 'N;' + '}'.repeat(200000);
+        expect(() => enc.decrypt(enc.encryptString(deep))).toThrow(/Decryption failed/);
+    });
+
+    test.each([
+        'a:9223372036854775807:{}',
+        'a:4000000000:{i:0;N;}',
+        'S:1:"a";'
+    ])('malformed %j is an ordinary error', (serialized) => {
+        expect(() => enc.decrypt(enc.encryptString(serialized))).toThrow(/Decryption failed/);
+    });
+});
+
 describe('serialize modes', () => {
     test('json mode round-trips (not PHP-compatible)', () => {
         const enc = new LaravelEncrypter(RAW32, 'aes-256-cbc', 'json');

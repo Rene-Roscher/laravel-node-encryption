@@ -167,6 +167,10 @@ app.post('/decrypt', (req, res) => {
   (a limitation of `php-serialize`).
 - PHP objects (Eloquent models, collections, `stdClass`) cannot be decoded and throw; they are
   never instantiated. Encrypt plain arrays or JSON strings instead.
+- Decoding is done by `php-serialize`, which is more lenient than PHP: it ignores data after the
+  serialized value and accepts a few malformed forms PHP rejects (array keys that are not integers
+  or strings, `inf`/`nan` as floats). This only matters for plaintext that was encrypted with your
+  key. Deep nesting and hostile counts end in an ordinary `Error`.
 - Without the optional `php-serialize` package, only strings, numbers, booleans and `null` use
   PHP's serialization format; objects and arrays are written as JSON inside a PHP string, which
   Laravel reads back as a string.
