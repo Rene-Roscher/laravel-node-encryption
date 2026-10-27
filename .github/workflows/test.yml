@@ -58,14 +58,22 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Install real illuminate/encryption ^${{ matrix.laravel }}
-      run: composer require "illuminate/encryption:^${{ matrix.laravel }}.0" --no-interaction --no-progress
+    - name: Install the real Laravel ${{ matrix.laravel }} encryption, cookie, session and database packages
+      run: >
+        composer require
+        "illuminate/encryption:^${{ matrix.laravel }}.0"
+        "illuminate/cookie:^${{ matrix.laravel }}.0"
+        "illuminate/session:^${{ matrix.laravel }}.0"
+        "illuminate/database:^${{ matrix.laravel }}.0"
+        --no-interaction --no-progress
 
     # Laravel -> Node: PHP generates fresh vectors (all four ciphers), Jest decrypts them.
     - name: Generate Laravel vectors
-      run: php scripts/generate_vectors.php
+      run: |
+        php scripts/generate_vectors.php
+        php scripts/generate_app_vectors.php
     - name: Node decrypts Laravel vectors
-      run: npx jest test/laravel-vectors.test.js
+      run: npx jest
 
     # Node -> Laravel: Node encrypts, PHP decrypts and asserts.
     - name: Laravel decrypts Node vectors

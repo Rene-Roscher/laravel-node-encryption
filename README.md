@@ -25,6 +25,7 @@ Perfect for microservices, APIs, and hybrid applications where you need to:
 - ✅ **Zero configuration** - Auto-detects `APP_KEY`
 - ✅ **Production ready** - Battle-tested AES-256-CBC with HMAC-SHA256
 - ✅ **No dependencies** - Lightweight with optional `php-serialize`
+- ✅ **Key rotation, cookies, sessions, Eloquent casts** - `APP_PREVIOUS_KEYS`, `EncryptCookies`, encrypted sessions and `encrypted` casts, checked against the real Laravel classes
 
 ## Installation
 
@@ -60,6 +61,8 @@ const decrypted = encrypter.decrypt(laravelEncryptedString);
 - `decrypt(payload)` - Decrypts Laravel-encrypted payload
 - `encryptString(value)` - Encrypts string without serialization
 - `decryptString(payload)` - Decrypts string without deserialization
+- `encryptCookie(name, value)` / `decryptCookie(name, payload)` - Laravel's encrypted cookies (see below)
+- `previousKeys(keys)` - Keys tried when decrypting, like `APP_PREVIOUS_KEYS` (also the `previousKeys` constructor option)
 
 ## Bidirectional Encryption Examples
 
@@ -100,6 +103,45 @@ use Illuminate\Support\Facades\Crypt;
 $token = Crypt::decrypt($encryptedFromNode);
 // $token = ['userId' => 1, 'expires' => '2024-12-31']
 ```
+
+## Key Rotation, Cookies, Sessions and Eloquent Casts
+
+**Previous keys.** Laravel 11 introduced `APP_PREVIOUS_KEYS`. Payloads are always encrypted with the
+current key, and decryption falls back to the previous keys:
+
+```javascript
+const encrypter = new LaravelEncrypter(process.env.APP_KEY, 'aes-256-cbc', 'php', {
+    previousKeys: process.env.APP_PREVIOUS_KEYS.split(',')
+});
+```
+
+**Cookies.** Laravel's `EncryptCookies` middleware encrypts `prefix + value` without serialization,
+where the prefix binds the cookie to its name and the key. `encryptCookie` and `decryptCookie` do
+the same; a cookie issued for another name, or by another application, throws. The prefix is also
+accepted for any previous key. Pass the raw cookie value, URL-decoded if it comes from a `Cookie`
+header.
+
+```javascript
+const cookie = encrypter.encryptCookie('laravel_session', sessionId);
+const id = encrypter.decryptCookie('laravel_session', cookieFromLaravel);
+```
+
+**Sessions.** With `session.encrypt` Laravel stores `Crypt::encrypt()` of the already serialized
+attributes, so `decrypt` returns a string that holds the serialization (PHP's, or JSON with
+`session.serialization = json`):
+
+```javascript
+const serialized = encrypter.decrypt(sessionPayload);
+const attributes = encrypter.unserialize(serialized); // JSON.parse(serialized) for json sessions
+const userId = attributes.user_id;
+
+// ...and the way back:
+const payload = encrypter.encrypt(encrypter.serialize(attributes));
+```
+
+**Eloquent casts.** `encrypted` is `Crypt::encryptString()` of the value; `encrypted:array`,
+`:object` and `:collection` encrypt its JSON. Use `decryptString` / `encryptString` and
+`JSON.parse` / `JSON.stringify`.
 
 ## Environment Setup
 
@@ -193,12 +235,14 @@ npm test                          # unit tests + Laravel-generated vectors
 npm run test:coverage             # with the coverage thresholds
 composer install                  # once, for the interop harness (needs PHP 8.2+)
 php scripts/generate_vectors.php  # regenerate fixtures/vectors.json with real Laravel
+php scripts/generate_app_vectors.php  # cookies, sessions, casts, random keys
 node scripts/genvectors.js | php scripts/verify_node_vectors.php
 node scripts/mutations.js | php scripts/verify_mutations.php
 ```
 
 `fixtures/vectors.json` holds payloads produced by the real `illuminate/encryption` for all four
-ciphers (strings and serialized values). CI regenerates them for Laravel 10, 11, 12 and 13 and
+ciphers (strings, serialized values and a rotated key); `fixtures/app-vectors.json` holds random-key
+payloads and what the real `EncryptCookies` logic, `EncryptedStore` and Eloquent casts produce. CI regenerates them for Laravel 10, 11, 12 and 13 and
 checks both directions: Jest decrypts what Laravel encrypted, and Laravel decrypts what Node
 encrypted. `scripts/mutations.js` also emits thousands of valid and mutated payloads with this
 package's verdict on each; `scripts/verify_mutations.php` asks Laravel about the same payloads,
