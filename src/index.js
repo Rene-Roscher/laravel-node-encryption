@@ -70,6 +70,38 @@ function phpBase64Decode(input, strict) {
 }
 
 /**
+ * Resolves a key to raw bytes. "base64:XXXX" (the APP_KEY form) is decoded the way Laravel does,
+ * with PHP's lenient base64_decode (padding is optional and stray characters are skipped; a
+ * malformed value decodes to the wrong length, which the constructor rejects). A bare base64
+ * string that decodes to 16 or 32 bytes is decoded; any other string is used as its raw bytes,
+ * and a Buffer as it is.
+ *
+ * @param {string|Buffer} key
+ * @returns {Buffer}
+ */
+function parseKey(key) {
+    if (typeof key !== 'string') {
+        return key;
+    }
+    if (key.startsWith('base64:')) {
+        return phpBase64Decode(key.substring(7), false);
+    }
+    const decoded = Buffer.from(key, 'base64');
+    return decoded.length === 16 || decoded.length === 32 ? decoded : Buffer.from(key, 'binary');
+}
+
+/**
+ * Laravel's CookieValuePrefix::create(): hash_hmac('sha1', $name.'v2', $key).'|'
+ *
+ * @param {string} name
+ * @param {Buffer} key
+ * @returns {string}
+ */
+function cookiePrefix(name, key) {
+    return crypto.createHmac('sha1', key).update(name + 'v2').digest('hex') + '|';
+}
+
+/**
  * Laravel-compatible Encryption class for Node.js
  * Full compatibility with Laravel 10.x through 13.x
  *
@@ -90,6 +122,12 @@ class LaravelEncrypter {
      * @type {Buffer}
      */
     key;
+
+    /**
+     * The previous / legacy encryption keys, tried when decrypting
+     * @type {Buffer[]}
+     */
+    previousKeyList = [];
 
     /**
      * The algorithm used for encryption
@@ -153,28 +191,7 @@ class LaravelEncrypter {
             throw new Error('No encryption key provided and APP_KEY not found in environment variables');
         }
 
-        // Handle Laravel's base64: prefix
-        if (typeof encryptionKey === 'string' && encryptionKey.startsWith('base64:')) {
-            this.key = Buffer.from(encryptionKey.substring(7), 'base64');
-        } else if (typeof encryptionKey === 'string') {
-            // Try to decode as base64
-            try {
-                const decoded = Buffer.from(encryptionKey, 'base64');
-                // Check if it's valid base64 and has the right length
-                if (decoded.length === 16 || decoded.length === 32) {
-                    this.key = decoded;
-                } else {
-                    // Treat as raw string
-                    this.key = Buffer.from(encryptionKey, 'binary');
-                }
-            } catch (e) {
-                // Not base64, treat as raw
-                this.key = Buffer.from(encryptionKey, 'binary');
-            }
-        } else {
-            // Already a Buffer
-            this.key = encryptionKey;
-        }
+        this.key = parseKey(encryptionKey);
 
         this.cipher = cipher.toLowerCase();
         this.serializeMode = serializeMode;
@@ -195,6 +212,10 @@ class LaravelEncrypter {
             throw new Error(`Invalid key length for ${this.cipher}. Expected ${expectedKeySize} bytes, got ${this.key.length} bytes.`);
         }
 
+        if (options.previousKeys) {
+            this.previousKeys(options.previousKeys);
+        }
+
         // Load PHP serializer if in PHP mode
         if (this.serializeMode === 'php') {
             try {
@@ -204,6 +225,77 @@ class LaravelEncrypter {
                 console.warn('Falling back to simple string serialization.');
             }
         }
+    }
+
+    /**
+     * Set the previous / legacy encryption keys that are tried when decrypting with the current
+     * key fails, like Laravel's previousKeys() and APP_PREVIOUS_KEYS (Laravel 11+). New payloads
+     * are always encrypted with the current key. Each key takes the same forms as the constructor's
+     * key and must fit the cipher.
+     * @param {Array<string|Buffer>} keys
+     * @returns {LaravelEncrypter}
+     */
+    previousKeys(keys) {
+        const expectedKeySize = LaravelEncrypter.supportedCiphers[this.cipher].size;
+        const parsed = keys.map((key) => parseKey(key));
+        for (const key of parsed) {
+            if (key.length !== expectedKeySize) {
+                throw new Error(`Invalid key length for ${this.cipher}. Expected ${expectedKeySize} bytes, got ${key.length} bytes.`);
+            }
+        }
+        this.previousKeyList = parsed;
+        return this;
+    }
+
+    /**
+     * Get the previous encryption keys
+     * @returns {Buffer[]}
+     */
+    getPreviousKeys() {
+        return this.previousKeyList;
+    }
+
+    /**
+     * Get the current encryption key followed by all previous keys
+     * @returns {Buffer[]}
+     */
+    getAllKeys() {
+        return [this.key, ...this.previousKeyList];
+    }
+
+    /**
+     * Encrypt a cookie value the way Laravel's EncryptCookies middleware does: the value is
+     * prefixed with an HMAC of the cookie name and the key, and encrypted without serialization.
+     * Laravel decrypts it back to the value for the cookie name.
+     * @param {string} name
+     * @param {string} value
+     * @returns {string}
+     */
+    encryptCookie(name, value) {
+        return this.encryptString(cookiePrefix(name, this.key) + value);
+    }
+
+    /**
+     * Decrypt a cookie that Laravel's EncryptCookies middleware encrypted, and check that it was
+     * issued for the cookie name by this application: the prefix must match the current key or
+     * one of the previous keys, otherwise this throws (Laravel treats such a cookie as absent).
+     *
+     * The payload is the raw cookie value; URL-decode it first if it comes from a Cookie header.
+     * Cookies that an application serializes on purpose (EncryptCookies::serialized()) are not
+     * supported.
+     * @param {string} name
+     * @param {string} payload
+     * @returns {string}
+     */
+    decryptCookie(name, payload) {
+        const plain = Buffer.from(this.decryptString(payload));
+        for (const key of this.getAllKeys()) {
+            const prefix = Buffer.from(cookiePrefix(name, key));
+            if (plain.length >= prefix.length && crypto.timingSafeEqual(plain.subarray(0, prefix.length), prefix)) {
+                return plain.subarray(prefix.length).toString();
+            }
+        }
+        throw new Error('The cookie value prefix is invalid.');
     }
 
     /**
@@ -430,26 +522,35 @@ class LaravelEncrypter {
                 if (tag === null || tag.length !== 16) {
                     throw new Error('Could not decrypt the data.');
                 }
-                try {
-                    const decipher = crypto.createDecipheriv(this.cipher, this.key, iv);
-                    decipher.setAuthTag(tag);
-                    decrypted = Buffer.concat([
-                        decipher.update(encrypted),
-                        decipher.final()
-                    ]);
-                } catch (e) {
+                // Try the current key first, then the previous keys, until one authenticates
+                for (const key of this.getAllKeys()) {
+                    try {
+                        const decipher = crypto.createDecipheriv(this.cipher, key, iv);
+                        decipher.setAuthTag(tag);
+                        decrypted = Buffer.concat([
+                            decipher.update(encrypted),
+                            decipher.final()
+                        ]);
+                        break;
+                    } catch (e) {
+                        // not this key
+                    }
+                }
+                if (decrypted === undefined) {
                     throw new Error('Could not decrypt the data.');
                 }
             } else {
-                // CBC mode: a payload must not carry a tag, and the MAC is verified first
+                // CBC mode: a payload must not carry a tag, and the MAC is verified first;
+                // the first key whose MAC matches is used
                 if (tag !== null) {
                     throw new Error('Could not decrypt the data.');
                 }
-                if (!this.validMac(data)) {
+                const key = this.getAllKeys().find((candidate) => this.validMac(data, candidate));
+                if (key === undefined) {
                     throw new Error('The MAC is invalid.');
                 }
                 try {
-                    const decipher = crypto.createDecipheriv(this.cipher, this.key, iv);
+                    const decipher = crypto.createDecipheriv(this.cipher, key, iv);
                     decrypted = Buffer.concat([
                         decipher.update(encrypted),
                         decipher.final()
@@ -534,15 +635,16 @@ class LaravelEncrypter {
     /**
      * Create a MAC for the payload (Laravel compatible)
      * @param {object} payload
+     * @param {Buffer} key
      * @returns {string}
      */
-    hash(payload) {
+    hash(payload, key = this.key) {
         // Laravel 10.x uses direct concatenation: $iv.$value (base64 strings)
         const message = payload.iv + payload.value;
 
         // Generate HMAC using SHA256
         return crypto
-            .createHmac('sha256', this.key)
+            .createHmac('sha256', key)
             .update(message)
             .digest('hex');
     }
@@ -573,10 +675,11 @@ class LaravelEncrypter {
     /**
      * Verify MAC is valid
      * @param {object} payload
+     * @param {Buffer} key
      * @returns {boolean}
      */
-    validMac(payload) {
-        const calculated = this.hash(payload);
+    validMac(payload, key = this.key) {
+        const calculated = this.hash(payload, key);
         const provided = payload.mac;
 
         if (typeof provided !== 'string' || calculated.length !== provided.length) {
