@@ -77,6 +77,30 @@ describe('keys', () => {
     });
 });
 
+describe('appearsEncrypted', () => {
+    test('inspects the payload shape', () => {
+        for (const cipher of ALL_CIPHERS) {
+            expect(LaravelEncrypter.appearsEncrypted(newEnc(cipher).encryptString('x'))).toBe(true);
+        }
+        const valid = newEnc('aes-256-cbc').encryptString('x');
+        const wrap = (s) => Buffer.from(s).toString('base64');
+        const missingMac = JSON.parse(Buffer.from(valid, 'base64').toString());
+        delete missingMac.mac;
+        for (const value of [
+            '', 'plain text', 'e30=', 'bnVsbA==', wrap('[]'), wrap(JSON.stringify(missingMac)),
+            wrap('{"iv":null,"value":"x","mac":"x"}'),
+            // base64_decode($value, true) is strict: other characters are rejected
+            `${valid}!`,
+            Buffer.concat([Buffer.from('{"iv":"'), Buffer.from([0xff]), Buffer.from('","value":"x","mac":"x"}')]).toString('base64'),
+            undefined, null, 5, {}
+        ]) {
+            expect(LaravelEncrypter.appearsEncrypted(value)).toBe(false);
+        }
+        // only the presence of the three fields counts, as in Laravel
+        expect(LaravelEncrypter.appearsEncrypted(wrap('{"iv":1,"value":[],"mac":false}'))).toBe(true);
+    });
+});
+
 describe('encryptString', () => {
     test('only takes strings', () => {
         const enc = newEnc('aes-256-cbc');

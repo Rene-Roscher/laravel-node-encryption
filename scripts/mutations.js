@@ -1,7 +1,8 @@
 // Emits valid and mutated payloads together with this package's verdict on each, as JSON on
 // stdout. CI pipes this into scripts/verify_mutations.php, which asks the real Laravel
 // encrypter about the same payloads: both must accept and reject exactly the same ones, and
-// return the same plaintext for the accepted ones.
+// return the same plaintext for the accepted ones. Laravel versions that have
+// Encrypter::appearsEncrypted() are also asked whether each payload looks encrypted.
 const { LaravelEncrypter } = require('../src/index');
 
 const key = Buffer.alloc(32, 0x2b);
@@ -77,7 +78,7 @@ for (const cipher of ['aes-128-cbc', 'aes-256-cbc', 'aes-128-gcm', 'aes-256-gcm'
             } catch (e) {
                 // rejected
             }
-            cases.push({ cipher, payload, plain });
+            cases.push({ cipher, payload, plain, appears: LaravelEncrypter.appearsEncrypted(payload) });
         }
     }
 }

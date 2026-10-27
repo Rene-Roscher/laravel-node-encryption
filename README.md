@@ -62,6 +62,7 @@ const decrypted = encrypter.decrypt(laravelEncryptedString);
 - `encryptString(value)` - Encrypts string without serialization
 - `decryptString(payload)` - Decrypts string without deserialization
 - `encryptCookie(name, value)` / `decryptCookie(name, payload)` - Laravel's encrypted cookies (see below)
+- `LaravelEncrypter.appearsEncrypted(value)` - Whether a string has the shape of a payload, like Laravel 12+'s `Encrypter::appearsEncrypted`
 - `previousKeys(keys)` - Keys tried when decrypting, like `APP_PREVIOUS_KEYS` (also the `previousKeys` constructor option)
 
 ## Bidirectional Encryption Examples

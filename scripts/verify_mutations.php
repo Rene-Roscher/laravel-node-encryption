@@ -19,6 +19,7 @@ if (! is_array($data) || ! isset($data['key_b64'], $data['cases'])) {
 }
 
 $rawKey = base64_decode($data['key_b64']);
+$hasAppearsEncrypted = method_exists(Encrypter::class, 'appearsEncrypted'); // Laravel 12+
 $accepted = 0;
 $differences = 0;
 
@@ -34,6 +35,13 @@ foreach ($data['cases'] as $case) {
 
     if ($laravel !== null) {
         $accepted++;
+    }
+    if ($hasAppearsEncrypted && Encrypter::appearsEncrypted($case['payload']) !== $case['appears']) {
+        $differences++;
+        if ($differences <= 10) {
+            fwrite(STDERR, "DIFF appearsEncrypted [{$case['cipher']}] laravel=".var_export(Encrypter::appearsEncrypted($case['payload']), true)
+                .' impl='.var_export($case['appears'], true).' payload='.substr((string) base64_decode($case['payload']), 0, 200)."\n");
+        }
     }
     if ($laravel !== $case['plain']) {
         $differences++;

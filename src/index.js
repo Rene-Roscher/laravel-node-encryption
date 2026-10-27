@@ -579,6 +579,30 @@ class LaravelEncrypter {
     }
 
     /**
+     * Whether value has the shape of a payload produced by an encrypter, without decrypting it
+     * (Laravel's Encrypter::appearsEncrypted, Laravel 12+).
+     * @param {*} value
+     * @returns {boolean}
+     */
+    static appearsEncrypted(value) {
+        if (typeof value !== 'string') {
+            return false;
+        }
+        const raw = phpBase64Decode(value, true);
+        if (raw === null) {
+            return false;
+        }
+        let payload;
+        try {
+            payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw));
+        } catch (e) {
+            return false;
+        }
+        return payload !== null && typeof payload === 'object' && !Array.isArray(payload) &&
+            ['iv', 'value', 'mac'].every((field) => payload[field] !== undefined && payload[field] !== null);
+    }
+
+    /**
      * Get the JSON payload from encrypted data
      * (json_decode(base64_decode($payload), true) plus Laravel's validPayload)
      * @param {string} payload
