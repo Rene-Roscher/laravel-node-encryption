@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { Envelope, EnvelopeError } = require('./envelope');
 
 /**
  * PHP's base64_decode($input, $strict).
@@ -501,72 +502,96 @@ class LaravelEncrypter {
      */
     decrypt(payload, unserialize = true) {
         try {
-            // Auto-detect MAC method if enabled
-            if (this.autoDetectMac && !this.detectMacMethod) {
-                this.detectMacMethodFromPayload(payload);
-            }
-
-            // Decode and validate the payload (Laravel's getJsonPayload / validPayload)
-            const data = this.getJsonPayload(payload);
-            const iv = phpBase64Decode(data.iv, true);
-            // openssl_decrypt() base64-decodes the value leniently
-            const encrypted = phpBase64Decode(data.value, false);
-            // PHP's empty("0") is true, so Laravel sees neither "" nor "0" as a tag
-            const hasTag = typeof data.tag === 'string' && data.tag !== '' && data.tag !== '0';
-            const tag = hasTag ? phpBase64Decode(data.tag, false) : null;
-
-            let decrypted;
-
-            if (this.isAead()) {
-                // AEAD mode (GCM): the payload needs a 16-byte tag
-                if (tag === null || tag.length !== 16) {
-                    throw new Error('Could not decrypt the data.');
-                }
-                // Try the current key first, then the previous keys, until one authenticates
-                for (const key of this.getAllKeys()) {
-                    try {
-                        const decipher = crypto.createDecipheriv(this.cipher, key, iv);
-                        decipher.setAuthTag(tag);
-                        decrypted = Buffer.concat([
-                            decipher.update(encrypted),
-                            decipher.final()
-                        ]);
-                        break;
-                    } catch (e) {
-                        // not this key
-                    }
-                }
-                if (decrypted === undefined) {
-                    throw new Error('Could not decrypt the data.');
-                }
-            } else {
-                // CBC mode: a payload must not carry a tag, and the MAC is verified first;
-                // the first key whose MAC matches is used
-                if (tag !== null) {
-                    throw new Error('Could not decrypt the data.');
-                }
-                const key = this.getAllKeys().find((candidate) => this.validMac(data, candidate));
-                if (key === undefined) {
-                    throw new Error('The MAC is invalid.');
-                }
-                try {
-                    const decipher = crypto.createDecipheriv(this.cipher, key, iv);
-                    decrypted = Buffer.concat([
-                        decipher.update(encrypted),
-                        decipher.final()
-                    ]);
-                } catch (e) {
-                    throw new Error('Could not decrypt the data.');
-                }
-            }
-
-            decrypted = decrypted.toString('utf8');
+            const decrypted = this._decryptToBuffer(payload).toString('utf8');
 
             // Unserialize if needed
             return unserialize ? this.unserialize(decrypted) : decrypted;
         } catch (error) {
             throw new Error(`Decryption failed: ${error.message}`);
         }
+    }
+
+    /**
+     * Decrypt a payload to its raw plaintext bytes, without the UTF-8 decoding that decryptString
+     * does (which replaces invalid sequences)
+     * @param {string} payload - Base64 encoded encrypted payload
+     * @returns {Buffer}
+     */
+    decryptBuffer(payload) {
+        try {
+            return this._decryptToBuffer(payload);
+        } catch (error) {
+            throw new Error(`Decryption failed: ${error.message}`);
+        }
+    }
+
+    /**
+     * Decrypt a payload, throwing the bare error
+     * @param {string} payload
+     * @returns {Buffer}
+     * @private
+     */
+    _decryptToBuffer(payload) {
+        // Auto-detect MAC method if enabled
+        if (this.autoDetectMac && !this.detectMacMethod) {
+            this.detectMacMethodFromPayload(payload);
+        }
+
+        // Decode and validate the payload (Laravel's getJsonPayload / validPayload)
+        const data = this.getJsonPayload(payload);
+        const iv = phpBase64Decode(data.iv, true);
+        // openssl_decrypt() base64-decodes the value leniently
+        const encrypted = phpBase64Decode(data.value, false);
+        // PHP's empty("0") is true, so Laravel sees neither "" nor "0" as a tag
+        const hasTag = typeof data.tag === 'string' && data.tag !== '' && data.tag !== '0';
+        const tag = hasTag ? phpBase64Decode(data.tag, false) : null;
+
+        let decrypted;
+
+        if (this.isAead()) {
+            // AEAD mode (GCM): the payload needs a 16-byte tag
+            if (tag === null || tag.length !== 16) {
+                throw new Error('Could not decrypt the data.');
+            }
+            // Try the current key first, then the previous keys, until one authenticates
+            for (const key of this.getAllKeys()) {
+                try {
+                    const decipher = crypto.createDecipheriv(this.cipher, key, iv);
+                    decipher.setAuthTag(tag);
+                    decrypted = Buffer.concat([
+                        decipher.update(encrypted),
+                        decipher.final()
+                    ]);
+                    break;
+                } catch (e) {
+                    // not this key
+                }
+            }
+            if (decrypted === undefined) {
+                throw new Error('Could not decrypt the data.');
+            }
+        } else {
+            // CBC mode: a payload must not carry a tag, and the MAC is verified first;
+            // the first key whose MAC matches is used
+            if (tag !== null) {
+                throw new Error('Could not decrypt the data.');
+            }
+            const key = this.getAllKeys().find((candidate) => this.validMac(data, candidate));
+            if (key === undefined) {
+                throw new Error('The MAC is invalid.');
+            }
+            try {
+                const decipher = crypto.createDecipheriv(this.cipher, key, iv);
+                decrypted = Buffer.concat([
+                    decipher.update(encrypted),
+                    decipher.final()
+                ]);
+            } catch (e) {
+                throw new Error('Could not decrypt the data.');
+            }
+        }
+
+        return decrypted;
     }
 
     /**
@@ -594,7 +619,7 @@ class LaravelEncrypter {
         }
         let payload;
         try {
-            payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw));
+            payload = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw));
         } catch (e) {
             return false;
         }
@@ -615,7 +640,7 @@ class LaravelEncrypter {
                 throw new Error('The payload is invalid.');
             }
             // PHP's json_decode rejects invalid UTF-8
-            const decoded = new TextDecoder('utf-8', { fatal: true })
+            const decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
                 .decode(phpBase64Decode(payload, false));
             data = JSON.parse(decoded);
         } catch (error) {
@@ -837,4 +862,4 @@ class Crypt {
 }
 
 // Export both classes (_internal is for the tests)
-module.exports = { LaravelEncrypter, Crypt, _internal: { phpBase64Decode } };
+module.exports = { LaravelEncrypter, Crypt, Envelope, EnvelopeError, _internal: { phpBase64Decode } };
