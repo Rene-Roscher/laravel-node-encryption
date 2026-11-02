@@ -97,8 +97,12 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    - name: Run npm audit
-      run: npm audit --audit-level=moderate || true
+    # What ships to users: the package has no runtime dependencies, so this has to stay clean.
+    - name: Audit production dependencies
+      run: npx better-npm-audit audit --production
 
-    - name: Check for known vulnerabilities
+    # The test tooling (Jest, ESLint) sometimes has advisories without a fix that does not break the
+    # toolchain. They are reported here but do not fail the build.
+    - name: Audit development dependencies
+      continue-on-error: true
       run: npx better-npm-audit audit
