@@ -25,6 +25,7 @@ Perfect for microservices, APIs, and hybrid applications where you need to:
 - ✅ **Zero configuration** - Auto-detects `APP_KEY`
 - ✅ **Production ready** - Battle-tested AES-256-CBC with HMAC-SHA256
 - ✅ **No dependencies** - Lightweight with optional `php-serialize`
+- ✅ **Interop Envelope** - Expiring, scoped payloads that Laravel, Rust and Go read too
 - ✅ **Key rotation, cookies, sessions, Eloquent casts** - `APP_PREVIOUS_KEYS`, `EncryptCookies`, encrypted sessions and `encrypted` casts, checked against the real Laravel classes
 
 ## Installation
@@ -63,6 +64,8 @@ const decrypted = encrypter.decrypt(laravelEncryptedString);
 - `decryptString(payload)` - Decrypts string without deserialization
 - `encryptCookie(name, value)` / `decryptCookie(name, payload)` - Laravel's encrypted cookies (see below)
 - `LaravelEncrypter.appearsEncrypted(value)` - Whether a string has the shape of a payload, like Laravel 12+'s `Encrypter::appearsEncrypted`
+- `Envelope.seal(encrypter, options)` / `Envelope.open(encrypter, token, options)` - Expiring, scoped payloads (see below)
+- `decryptBuffer(payload)` - Decrypts to the raw plaintext bytes
 - `previousKeys(keys)` - Keys tried when decrypting, like `APP_PREVIOUS_KEYS` (also the `previousKeys` constructor option)
 
 ## Bidirectional Encryption Examples
@@ -143,6 +146,37 @@ const payload = encrypter.encrypt(encrypter.serialize(attributes));
 **Eloquent casts.** `encrypted` is `Crypt::encryptString()` of the value; `encrypted:array`,
 `:object` and `:collection` encrypt its JSON. Use `decryptString` / `encryptString` and
 `JSON.parse` / `JSON.stringify`.
+
+## Interop Envelope: Expiry and Scope
+
+`Envelope.seal` and `Envelope.open` add what the encrypter does not have: an expiry, a start time and
+a scope that a token may be used for. It is an **Interop Envelope**, a small JSON document (`typ`,
+`v`, `iat`, `nbf`, `exp`, `scope`, `data`) encrypted with `encryptString`, so the scope and the
+timestamps are authenticated like the rest. The Laravel package
+[`rene-roscher/laravel-interop`](https://github.com/Rene-Roscher/laravel-interop) and the Rust and Go
+packages read and write the same format; its README describes it.
+
+```javascript
+const { LaravelEncrypter, Envelope } = require('laravel-node-encryption');
+
+// Seal: what it is for, what it carries, when it stops working (chosen on every call).
+const token = Envelope.seal(encrypter, { scope: 'password-reset', data: { user: 7 }, expiresIn: 3600 });
+
+// Open: say what you expect it to be for.
+try {
+    const { data, expiresAt } = Envelope.open(encrypter, token, { scope: 'password-reset' });
+} catch (error) {
+    Envelope.verdict(error); // 'expired', 'scope_mismatch', ... or 'decrypt_error'
+}
+```
+
+Exactly one of `expiresIn` (seconds), `expiresAt` (Unix seconds or a `Date`) or `neverExpires: true`
+has to be given to `seal`; `notBefore` and `now` (the clock, for tests) are optional. `open` takes
+`leeway` (seconds of clock difference to tolerate) and `now`. Timestamps are Unix seconds. An unusable
+envelope is an `EnvelopeError` whose `kind` is `invalid`, `unsupported_version`, `scope_mismatch`,
+`not_yet_valid` or `expired`; a token that does not decrypt keeps the encrypter's error, and the
+previous keys apply. `data` follows `JSON.stringify`: `undefined` is refused, and `NaN` or `Infinity`
+become `null`.
 
 ## Environment Setup
 
@@ -240,6 +274,9 @@ php scripts/generate_app_vectors.php  # cookies, sessions, casts, random keys
 node scripts/genvectors.js | php scripts/verify_node_vectors.php
 node scripts/mutations.js | php scripts/verify_mutations.php
 ```
+
+`fixtures/envelope-vectors.json` holds Interop Envelope tokens of every shape, made by the real Laravel
+encrypter and `laravel-interop`, with the verdict every implementation has to reach.
 
 `fixtures/vectors.json` holds payloads produced by the real `illuminate/encryption` for all four
 ciphers (strings, serialized values and a rotated key); `fixtures/app-vectors.json` holds random-key

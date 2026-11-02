@@ -228,6 +228,8 @@ describe('malformed payloads', () => {
         'iv too long': edit(valid, (p) => { p.iv = Buffer.alloc(17).toString('base64'); }),
         truncated: valid.slice(0, valid.length / 2),
         'invalid utf-8': Buffer.concat([Buffer.from('{"iv":"'), Buffer.from([0xff]), Buffer.from('","value":"x","mac":"x"}')]).toString('base64'),
+        // json_decode() does not accept a byte order mark
+        'byte order mark': wrapText(`\uFEFF${Buffer.from(valid, 'base64').toString()}`),
         'upper-case field names': wrapText('{"IV":"x","VALUE":"x","MAC":"x"}')
     };
 
