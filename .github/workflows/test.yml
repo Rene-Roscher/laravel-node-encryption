@@ -72,6 +72,8 @@ jobs:
       run: |
         php scripts/generate_vectors.php
         php scripts/generate_app_vectors.php
+        php vendor/rene-roscher/laravel-interop/bin/generate-vectors.php
+        cp vendor/rene-roscher/laravel-interop/fixtures/envelope-vectors.json fixtures/envelope-vectors.json
     - name: Node decrypts Laravel vectors
       run: npx jest
 
@@ -82,3 +84,10 @@ jobs:
     # Malformed input: Node and Laravel must accept and reject exactly the same payloads.
     - name: Node and Laravel judge mutated payloads alike
       run: node scripts/mutations.js | php scripts/verify_mutations.php
+
+    # Interop Envelope: the Laravel package (rene-roscher/laravel-interop) judges the tokens this
+    # package issues, and our copy of its vectors must still be the package's.
+    - name: Laravel package judges our envelope tokens
+      run: node scripts/envelope.js | php vendor/rene-roscher/laravel-interop/bin/verify-tokens.php
+    - name: Envelope vectors are the Laravel package's
+      run: php vendor/rene-roscher/laravel-interop/e2e/check-fixtures.php fixtures/envelope-vectors.json
